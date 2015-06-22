@@ -1,3 +1,8 @@
+import os
+import subprocess
+import re
+import codecs
+
 import neovim
 
 class GitGutterHandler(object):
@@ -6,6 +11,13 @@ class GitGutterHandler(object):
         self.git_tree = None
         self.git_dir = None
         self.git_path = None
+
+		#settings to add in support for later
+		self.git_binary_path = ''	
+		self.ignore_whitespace = ''
+		self.patience_switch = ''
+		self.show_untracked = ''
+		self.show_status = ''
 
     def on_disk(self):
         # if the view is saved to disk
@@ -114,6 +126,15 @@ class GitGutterHandler(object):
             return self.process_diff(decoded_results)
         else:
             return ([], [], [])
+
+	def run_command(self, args):
+        startupinfo = None
+        if os.name == 'nt':
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        proc = subprocess.Popen(args, stdout=subprocess.PIPE,
+                                startupinfo=startupinfo, stderr=subprocess.PIPE)
+        return proc.stdout.read()
 
 	#expect each line as a dict like {number: 2, type: add}
 	def show_signs(modified_lines, buffer):
