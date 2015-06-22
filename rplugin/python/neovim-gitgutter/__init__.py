@@ -1,29 +1,71 @@
 import neovim
 
 class GitGutterHandler(object):
-	def __init__(self, file_name=None):
-		self.file_name = file_name
+	def __init__(self, buffer):
+		self.file_name = buffer.name
+        self.git_tree = None
+        self.git_dir = None
+        self.git_path = None
 
     def on_disk(self):
         # if the view is saved to disk
         on_disk = self.file_name() is not None
         if on_disk:
-            self.git_tree = self.git_tree or git_helper.git_tree(self.view)
+            self.git_tree = self.git_tree or git_helper.git_tree(self.file_name)
             self.git_dir = self.git_dir or git_helper.git_dir(self.git_tree)
             self.git_path = self.git_path or git_helper.git_file_path(
-                self.view, self.git_tree
+                self.file_name, self.git_tree
             )
         return on_disk
 
-	#expect each line as a dict like {number: 2, type: add}
-	def show_signs(modified_lines, buffer):
-		for line in modified_lines:
-			if line.type == 'inserted':
-				self.place_add_sign(line.number, buffer)
-			if line.type == 'modified':
-				self.place_modified_sign(line.number, buffer)
-			if line.type == 'deleted':
-				self.place_deleted_sign(line.number, buffer)
+	#def update_buf_file(self):
+        #chars = self.view.size()
+        #region = sublime.Region(0, chars)
+
+        ## Try conversion
+        #try:
+            #contents = self.view.substr(
+                #region).encode(self._get_view_encoding())
+        #except UnicodeError:
+            ## Fallback to utf8-encoding
+            #contents = self.view.substr(region).encode('utf-8')
+        #except LookupError:
+            ## May encounter an encoding we don't have a codec for
+            #contents = self.view.substr(region).encode('utf-8')
+
+        #contents = contents.replace(b'\r\n', b'\n')
+        #contents = contents.replace(b'\r', b'\n')
+        #f = open(self.buf_temp_file.name, 'wb')
+
+        #if self.view.encoding() == "UTF-8 with BOM":
+            #f.write(codecs.BOM_UTF8)
+
+        #f.write(contents)
+        #f.close()
+
+    #def update_git_file(self):
+        ## the git repo won't change that often
+        ## so we can easily wait 5 seconds
+        ## between updates for performance
+        #if ViewCollection.git_time(self.view) > 5:
+            #open(self.git_temp_file.name, 'w').close()
+            #args = [
+                #self.git_binary_path,
+                #'--git-dir=' + self.git_dir,
+                #'--work-tree=' + self.git_tree,
+                #'show',
+                #ViewCollection.get_compare(self.view) + ':' + self.git_path,
+            #]
+            #try:
+                #contents = self.run_command(args)
+                #contents = contents.replace(b'\r\n', b'\n')
+                #contents = contents.replace(b'\r', b'\n')
+                #f = open(self.git_temp_file.name, 'wb')
+                #f.write(contents)
+                #f.close()
+                #ViewCollection.update_git_time(self.view)
+            #except Exception:
+                #pass
 
 	def process_diff(self, diff_str):
 		inserted = []
@@ -45,8 +87,8 @@ class GitGutterHandler(object):
 
 	 def diff(self):
         if self.on_disk() and self.git_path:
-            self.update_git_file()
-            self.update_buf_file()
+            #self.update_git_file()
+            #self.update_buf_file()
             args = [
                 self.git_binary_path, 'diff', '-U0', '--no-color', '--no-index',
                 self.ignore_whitespace,
@@ -72,6 +114,16 @@ class GitGutterHandler(object):
             return self.process_diff(decoded_results)
         else:
             return ([], [], [])
+
+	#expect each line as a dict like {number: 2, type: add}
+	def show_signs(modified_lines, buffer):
+		for line in modified_lines:
+			if line.type == 'inserted':
+				self.place_add_sign(line.number, buffer)
+			if line.type == 'modified':
+				self.place_modified_sign(line.number, buffer)
+			if line.type == 'deleted':
+				self.place_deleted_sign(line.number, buffer)
 
 	def _place_sign(self, sign=None, line_no=None, buffer=None):
 		self.vim.command('sign place {line} line={line} name={sign} file={file}'.format(line=line_no, sign=sign, file=buffer.name))
