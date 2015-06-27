@@ -2,11 +2,13 @@ import os
 import subprocess
 import re
 import codecs
+import git_helper
 
 import neovim
 
 class GitGutterHandler(object):
-	def __init__(self, buffer):
+	def __init__(self, buffer,vim=None):
+		self.vim = vim
 		self.buffer = buffer
 		self.file_name = buffer.name
 		self.git_tree = None
@@ -14,13 +16,11 @@ class GitGutterHandler(object):
 		self.git_path = None
 
 		#settings to add in support for later
-		self.git_binary_path = ''	
-		self.ignore_whitespace = ''
-		self.patience_switch = ''
 		self.show_untracked = ''
 		self.show_status = ''
 
-	 def _get_view_encoding(self):
+
+	def _get_view_encoding(self):
 		pattern = re.compile(r'.+\((.*)\)')
 		encoding = self.buffer.options['fileencoding']
 
@@ -36,7 +36,7 @@ class GitGutterHandler(object):
 
 	def on_disk(self):
 		# if the view is saved to disk
-		on_disk = self.file_name() is not None
+		on_disk = self.file_name is not None
 		if on_disk:
 			self.git_tree = self.git_tree or git_helper.git_tree(self.file_name)
 			self.git_dir = self.git_dir or git_helper.git_dir(self.git_tree)
@@ -44,55 +44,6 @@ class GitGutterHandler(object):
 				self.file_name, self.git_tree
 			)
 		return on_disk
-
-	#def update_buf_file(self):
-		#chars = self.view.size()
-		#region = sublime.Region(0, chars)
-
-		## Try conversion
-		#try:
-			#contents = self.view.substr(
-				#region).encode(self._get_view_encoding())
-		#except UnicodeError:
-			## Fallback to utf8-encoding
-			#contents = self.view.substr(region).encode('utf-8')
-		#except LookupError:
-			## May encounter an encoding we don't have a codec for
-			#contents = self.view.substr(region).encode('utf-8')
-
-		#contents = contents.replace(b'\r\n', b'\n')
-		#contents = contents.replace(b'\r', b'\n')
-		#f = open(self.buf_temp_file.name, 'wb')
-
-		#if self.view.encoding() == "UTF-8 with BOM":
-			#f.write(codecs.BOM_UTF8)
-
-		#f.write(contents)
-		#f.close()
-
-	#def update_git_file(self):
-		## the git repo won't change that often
-		## so we can easily wait 5 seconds
-		## between updates for performance
-		#if ViewCollection.git_time(self.view) > 5:
-			#open(self.git_temp_file.name, 'w').close()
-			#args = [
-				#self.git_binary_path,
-				#'--git-dir=' + self.git_dir,
-				#'--work-tree=' + self.git_tree,
-				#'show',
-				#ViewCollection.get_compare(self.view) + ':' + self.git_path,
-			#]
-			#try:
-				#contents = self.run_command(args)
-				#contents = contents.replace(b'\r\n', b'\n')
-				#contents = contents.replace(b'\r', b'\n')
-				#f = open(self.git_temp_file.name, 'wb')
-				#f.write(contents)
-				#f.close()
-				#ViewCollection.update_git_time(self.view)
-			#except Exception:
-				#pass
 
 	def process_diff(self, diff_str):
 		inserted = []
@@ -106,23 +57,16 @@ class GitGutterHandler(object):
 			new_size = int(hunk.group(4) or 1)
 			if not old_size:
 				inserted += range(start, start + new_size)
+				self.vim.command('echo "{0}"'.format(inserted))
 			elif not new_size:
 				deleted += [start + 1]
 			else:
 				modified += range(start, start + new_size)
 		return (inserted, modified, deleted)
 
-	 def diff(self):
+	def diff(self):
 		if self.on_disk() and self.git_path:
-			#self.update_git_file()
-			#self.update_buf_file()
-			args = [
-				self.git_binary_path, 'diff', '-U0', '--no-color', '--no-index',
-				self.ignore_whitespace,
-				self.patience_switch,
-				self.git_temp_file.name,
-				self.buf_temp_file.name,
-			]
+			args = ['git', 'diff', '-U0', '--no-color', "HEAD", self.file_name]
 			args = list(filter(None, args))  # Remove empty args
 			results = self.run_command(args)
 			encoding = self._get_view_encoding()
@@ -161,20 +105,20 @@ class GitGutterHandler(object):
 			if line.type == 'deleted':
 				self.place_deleted_sign(line.number, buffer)
 
-	def _place_sign(self, sign=None, line_no=None, buffer=None):
-		self.vim.command('sign place {line} line={line} name={sign} file={file}'.format(line=line_no, sign=sign, file=buffer.name))
+	def _place_sign(self, sign=None, line_no=None):
+		self.vim.command('sign place {line} line={line} name={sign} file={file}'.format(line=line_no, sign=sign, file=self.buffer.name))
 
-	def unplace_sign(self, line_no=None, buffer=None):
-		self.vim.command('sign place {line} file={file}'.format(line=line_no, file=buffer.name))
+	def unplace_sign(self, line_no=None):
+		self.vim.command('sign place {line} file={file}'.format(line=line_no, file=self.buffer.name))
 
-	def place_add_sign(self, line_no=None, buffer=None):
-		self._place_sign(sign="line_added", line_no=line_no, buffer=buffer)
+	def place_add_sign(self, line_no=None):
+		self._place_sign(sign="line_added", line_no=line_no)
 
-	def place_modified_sign(self, line_no=None, buffer=None):
-		self._place_sign(sign="line_modified", line_no=line_no, buffer=buffer)
+	def place_modified_sign(self, line_no=None):
+		self._place_sign(sign="line_modified", line_no=line_no)
 
-	def place_remove_sign(self, line_no=None, buffer=None):
-		self._place_sign(sign="line_removed", line_no=line_no, buffer=buffer)
+	def place_remove_sign(self, line_no=None):
+		self._place_sign(sign="line_removed", line_no=line_no)
 
 @neovim.plugin
 class GitGutter(object):
@@ -192,10 +136,22 @@ class GitGutter(object):
 		self.vim.command('highlight lineModified guifg=#bbbb00 guibg=NONE ctermfg=3 ctermbg=NONE')
 		self.vim.command('highlight lineRemoved guifg=#ff2222 guibg=NONE ctermfg=1 ctermbg=NONE')
 
-	@neovim.autocmd('BufReadPost')
-	@neovim.autocmd('BufWritePost')
-	@neovim.autocmd('FileReadPost')
-	@neovim.autocmd('FileWritePost')
-	@neovim.autocmd('BufEnter')
-	def run(self):
-		pass
+	#@neovim.autocmd('BufReadPost')
+	#@neovim.autocmd('BufWritePost')
+	#@neovim.autocmd('FileReadPost')
+	#@neovim.autocmd('FileWritePost')
+	#@neovim.autocmd('BufEnter')
+	#def run(self):
+		#pass
+
+	@neovim.command('Test', sync=True)
+	def test(self):
+		if self.vim.current.buffer.name:
+			gutter = GitGutterHandler(self.vim.current.buffer, vim=self.vim)
+			inserted, modified, deleted = gutter.diff()
+			for line in inserted:
+				gutter.place_add_sign(line)
+			for line in modified:
+				gutter.place_modified_sign(line)
+			for line in deleted:
+				gutter.place_remove_sign(line)
