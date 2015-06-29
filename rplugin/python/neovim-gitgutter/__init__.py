@@ -1,7 +1,10 @@
+# -*- coding: utf-8 -*-
+
 import os
 import subprocess
 import re
 import codecs
+import tempfile
 import git_helper
 
 import neovim
@@ -14,6 +17,7 @@ class GitGutterHandler(object):
 		self.git_tree = None
 		self.git_dir = None
 		self.git_path = None
+		self.git_binary_path = 'git'
 
 		#settings to add in support for later
 		self.show_untracked = ''
@@ -45,6 +49,23 @@ class GitGutterHandler(object):
 			)
 		return on_disk
 
+	def get_git_contents(self):
+		#temp git file args
+		args = [
+			self.git_binary_path,
+			'--git-dir=' + self.git_dir,
+			'--work-tree=' + self.git_tree,
+			'show',
+			'HEAD:' + self.git_path,
+		]
+
+		git_contents = self.run_command(args)
+		git_contents = git_contents.replace(b'\r\n', b'\n')
+		return git_contents.replace(b'\r', b'\n')
+
+	def get_buf_contents(self):
+		return "\n".join(self.buffer[:])
+
 	def process_diff(self, diff_str):
 		inserted = []
 		modified = []
@@ -57,7 +78,6 @@ class GitGutterHandler(object):
 			new_size = int(hunk.group(4) or 1)
 			if not old_size:
 				inserted += range(start, start + new_size)
-				self.vim.command('echo "{0}"'.format(inserted))
 			elif not new_size:
 				deleted += [start + 1]
 			else:
@@ -66,9 +86,18 @@ class GitGutterHandler(object):
 
 	def diff(self):
 		if self.on_disk() and self.git_path:
-			args = ['git', 'diff', '-U0', '--no-color', "HEAD", self.file_name]
-			args = list(filter(None, args))  # Remove empty args
-			results = self.run_command(args)
+
+			git_contents = self.get_git_contents()
+			buf_contents = self.get_buf_contents()
+
+			with tempfile.NamedTemporaryFile() as git_temp, tempfile.NamedTemporaryFile() as buf_temp:
+				git_temp.write(git_contents)
+				buf_temp.write(buf_contents)
+
+				args = ['git', 'diff', '-U0', '--no-color', '--no-index', git_temp.name, buf_temp.name]
+				args = list(filter(None, args))  # Remove empty args
+				results = self.run_command(args)
+
 			encoding = self._get_view_encoding()
 			try:
 				decoded_results = results.decode(encoding.replace(' ', ''))
@@ -93,6 +122,9 @@ class GitGutterHandler(object):
 			startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
 		proc = subprocess.Popen(args, stdout=subprocess.PIPE,
 								startupinfo=startupinfo, stderr=subprocess.PIPE)
+		err = proc.stderr.read()
+		if not err == '':
+			raise Exception(err)
 		return proc.stdout.read()
 
 	#expect each line as a dict like {number: 2, type: add}
@@ -120,6 +152,9 @@ class GitGutterHandler(object):
 	def place_remove_sign(self, line_no=None):
 		self._place_sign(sign="line_removed", line_no=line_no)
 
+	def place_remove_above_sign(self, line_no=None):
+		self._place_sign(sign="line_above_removed", line_no=line_no)
+
 @neovim.plugin
 class GitGutter(object):
 	def __init__(self, vim):
@@ -129,12 +164,14 @@ class GitGutter(object):
 	def init_signs(self):
 		# define sign characters
 		self.vim.command('sign define line_added text=+ texthl=lineAdded')
-		self.vim.command('sign define line_modified text=~ texthl=lineModified')
-		self.vim.command('sign define line_removed text=_ texthl=lineRemoved')
+		self.vim.command(u'sign define line_modified text=■ texthl=lineModified')
+		self.vim.command('sign define line_removed text=ʌ texthl=lineRemoved')
+		self.vim.command('sign define line_above_removed text=v texthl=lineAboveRemoved')
 		#set coloring on signs
 		self.vim.command('highlight lineAdded guifg=#009900 guibg=NONE ctermfg=2 ctermbg=NONE')
 		self.vim.command('highlight lineModified guifg=#bbbb00 guibg=NONE ctermfg=3 ctermbg=NONE')
 		self.vim.command('highlight lineRemoved guifg=#ff2222 guibg=NONE ctermfg=1 ctermbg=NONE')
+		self.vim.command('highlight lineAboveRemoved guifg=#ff2222 guibg=NONE ctermfg=1 ctermbg=NONE')
 
 	#@neovim.autocmd('BufReadPost')
 	#@neovim.autocmd('BufWritePost')
@@ -155,3 +192,5 @@ class GitGutter(object):
 				gutter.place_modified_sign(line)
 			for line in deleted:
 				gutter.place_remove_sign(line)
+				if line > 1:
+					gutter.place_remove_above_sign(line - 1)
