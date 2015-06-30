@@ -64,7 +64,20 @@ class GitGutterHandler(object):
 		return git_contents.replace(b'\r', b'\n')
 
 	def get_buf_contents(self):
-		return "\n".join(self.buffer[:])
+		contents = u'\n'.join(self.buffer[:])
+		#Try conversion
+		try:
+			contents = contents.encode(self._get_view_encoding())
+
+		except UnicodeError:
+			# Fallback to utf8-encoding
+			contents = self.view.substr(region).encode('utf-8')
+		except LookupError:
+			# May encounter an encoding we don't have a codec for
+			contents = self.view.substr(region).encode('utf-8')
+
+		contents = contents.replace(b'\r\n', b'\n')
+		return contents.replace(b'\r', b'\n')
 
 	def process_diff(self, diff_str):
 		inserted = []
@@ -93,7 +106,8 @@ class GitGutterHandler(object):
 			with tempfile.NamedTemporaryFile() as git_temp, tempfile.NamedTemporaryFile() as buf_temp:
 				git_temp.write(git_contents)
 				buf_temp.write(buf_contents)
-
+				git_temp.seek(0)
+				buf_temp.seek(0)
 				args = ['git', 'diff', '-U0', '--no-color', '--no-index', git_temp.name, buf_temp.name]
 				args = list(filter(None, args))  # Remove empty args
 				results = self.run_command(args)
@@ -158,31 +172,9 @@ class GitGutterHandler(object):
 @neovim.plugin
 class GitGutter(object):
 	def __init__(self, vim):
-		self.vim = vim
-
-	@neovim.autocmd('VimEnter')
-	def init_signs(self):
-		# define sign characters
-		self.vim.command('sign define line_added text=+ texthl=lineAdded')
-		self.vim.command(u'sign define line_modified text=■ texthl=lineModified')
-		self.vim.command('sign define line_removed text=ʌ texthl=lineRemoved')
-		self.vim.command('sign define line_above_removed text=v texthl=lineAboveRemoved')
-		#set coloring on signs
-		self.vim.command('highlight lineAdded guifg=#009900 guibg=NONE ctermfg=2 ctermbg=NONE')
-		self.vim.command('highlight lineModified guifg=#bbbb00 guibg=NONE ctermfg=3 ctermbg=NONE')
-		self.vim.command('highlight lineRemoved guifg=#ff2222 guibg=NONE ctermfg=1 ctermbg=NONE')
-		self.vim.command('highlight lineAboveRemoved guifg=#ff2222 guibg=NONE ctermfg=1 ctermbg=NONE')
-
-	#@neovim.autocmd('BufReadPost')
-	#@neovim.autocmd('BufWritePost')
-	#@neovim.autocmd('FileReadPost')
-	#@neovim.autocmd('FileWritePost')
-	#@neovim.autocmd('BufEnter')
-	#def run(self):
-		#pass
-
-	@neovim.command('Test', sync=True)
-	def test(self):
+		self.vim = vim.with_hook(neovim.DecodeHook())
+	
+	def run_gutter(self):
 		if self.vim.current.buffer.name:
 			gutter = GitGutterHandler(self.vim.current.buffer, vim=self.vim)
 			inserted, modified, deleted = gutter.diff()
@@ -194,3 +186,50 @@ class GitGutter(object):
 				gutter.place_remove_sign(line)
 				if line > 1:
 					gutter.place_remove_above_sign(line - 1)
+
+	@neovim.autocmd('VimEnter')
+	def init_signs(self):
+		# define sign characters
+		self.vim.command('sign define line_added text=+ texthl=lineAdded')
+		self.vim.command('sign define line_modified text=■ texthl=lineModified')
+		self.vim.command('sign define line_removed text=ʌ texthl=lineRemoved')
+		self.vim.command('sign define line_above_removed text=v texthl=lineAboveRemoved')
+		#set coloring on signs
+		self.vim.command('highlight lineAdded guifg=#009900 guibg=NONE ctermfg=2 ctermbg=NONE')
+		self.vim.command('highlight lineModified guifg=#bbbb00 guibg=NONE ctermfg=3 ctermbg=NONE')
+		self.vim.command('highlight lineRemoved guifg=#ff2222 guibg=NONE ctermfg=1 ctermbg=NONE')
+		self.vim.command('highlight lineAboveRemoved guifg=#ff2222 guibg=NONE ctermfg=1 ctermbg=NONE')
+
+	@neovim.autocmd('BufReadPost', sync=True)
+	def run(self):
+		self.run_gutter()
+
+	@neovim.autocmd('BufWritePost', sync=True)
+	def run(self):
+		self.run_gutter()
+
+	@neovim.autocmd('FileReadPost', sync=True)
+	def run(self):
+		self.run_gutter()
+
+	@neovim.autocmd('FileWritePost', sync=True)
+	def run(self):
+		self.run_gutter()
+
+	@neovim.autocmd('BufEnter', sync=True)
+	def run(self):
+		self.run_gutter()
+
+	#@neovim.command('Test', sync=True)
+	#def test(self):
+		#if self.vim.current.buffer.name:
+			#gutter = GitGutterHandler(self.vim.current.buffer, vim=self.vim)
+			#inserted, modified, deleted = gutter.diff()
+			#for line in inserted:
+				#gutter.place_add_sign(line)
+			#for line in modified:
+				#gutter.place_modified_sign(line)
+			#for line in deleted:
+				#gutter.place_remove_sign(line)
+				#if line > 1:
+					#gutter.place_remove_above_sign(line - 1)
