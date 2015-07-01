@@ -155,7 +155,7 @@ class GitGutterHandler(object):
 		self.vim.command('sign place {line} line={line} name={sign} file={file}'.format(line=line_no, sign=sign, file=self.buffer.name))
 
 	def unplace_sign(self, line_no=None):
-		self.vim.command('sign place {line} file={file}'.format(line=line_no, file=self.buffer.name))
+		self.vim.command('sign unplace {line} file={file}'.format(line=line_no, file=self.buffer.name))
 
 	def place_add_sign(self, line_no=None):
 		self._place_sign(sign="line_added", line_no=line_no)
@@ -173,63 +173,81 @@ class GitGutterHandler(object):
 class GitGutter(object):
 	def __init__(self, vim):
 		self.vim = vim.with_hook(neovim.DecodeHook())
+		self.buffer_states = {}
 	
 	def run_gutter(self):
-		if self.vim.current.buffer.name:
+		
+		buf_name = self.vim.current.buffer.name
+		if buf_name:
+			if not buf_name in self.buffer_states:
+				self.buffer_states[buf_name] = {
+					'inserted': [],
+					'modified': [],
+					'deleted': []
+				}
+
+			buf_list = self.buffer_states[buf_name]
+			
 			gutter = GitGutterHandler(self.vim.current.buffer, vim=self.vim)
 			inserted, modified, deleted = gutter.diff()
+
 			for line in inserted:
 				gutter.place_add_sign(line)
 			for line in modified:
 				gutter.place_modified_sign(line)
 			for line in deleted:
-				gutter.place_remove_sign(line)
-				if line > 1:
-					gutter.place_remove_above_sign(line - 1)
+				if line not in modified:
+					gutter.place_remove_sign(line)
+					if line > 1:
+						gutter.place_remove_above_sign(line - 1)
+
+			for line in buf_list['inserted'] + buf_list['modified'] + buf_list['deleted']:
+					if line not in inserted + modified + deleted:
+						gutter.unplace_sign(line)
+
+			buf_list['inserted'], buf_list['modified'], buf_list['deleted'] = inserted, modified, deleted
 
 	@neovim.autocmd('VimEnter')
 	def init_signs(self):
 		# define sign characters
 		self.vim.command('sign define line_added text=+ texthl=lineAdded')
 		self.vim.command('sign define line_modified text=■ texthl=lineModified')
-		self.vim.command('sign define line_removed text=ʌ texthl=lineRemoved')
-		self.vim.command('sign define line_above_removed text=v texthl=lineAboveRemoved')
+		self.vim.command('sign define line_removed text=↟ texthl=lineRemoved')
+		self.vim.command('sign define line_above_removed text=↡ texthl=lineAboveRemoved')
 		#set coloring on signs
 		self.vim.command('highlight lineAdded guifg=#009900 guibg=NONE ctermfg=2 ctermbg=NONE')
 		self.vim.command('highlight lineModified guifg=#bbbb00 guibg=NONE ctermfg=3 ctermbg=NONE')
 		self.vim.command('highlight lineRemoved guifg=#ff2222 guibg=NONE ctermfg=1 ctermbg=NONE')
 		self.vim.command('highlight lineAboveRemoved guifg=#ff2222 guibg=NONE ctermfg=1 ctermbg=NONE')
 
-	@neovim.autocmd('BufReadPost', sync=True)
+	@neovim.autocmd('BufReadPost')
 	def run(self):
 		self.run_gutter()
 
-	@neovim.autocmd('BufWritePost', sync=True)
+	@neovim.autocmd('BufWritePost')
 	def run(self):
 		self.run_gutter()
 
-	@neovim.autocmd('FileReadPost', sync=True)
+	@neovim.autocmd('FileReadPost')
 	def run(self):
 		self.run_gutter()
 
-	@neovim.autocmd('FileWritePost', sync=True)
+	@neovim.autocmd('FileWritePost')
 	def run(self):
 		self.run_gutter()
 
-	@neovim.autocmd('BufEnter', sync=True)
+	@neovim.autocmd('BufEnter')
 	def run(self):
 		self.run_gutter()
 
-	#@neovim.command('Test', sync=True)
-	#def test(self):
-		#if self.vim.current.buffer.name:
-			#gutter = GitGutterHandler(self.vim.current.buffer, vim=self.vim)
-			#inserted, modified, deleted = gutter.diff()
-			#for line in inserted:
-				#gutter.place_add_sign(line)
-			#for line in modified:
-				#gutter.place_modified_sign(line)
-			#for line in deleted:
-				#gutter.place_remove_sign(line)
-				#if line > 1:
-					#gutter.place_remove_above_sign(line - 1)
+	@neovim.autocmd('TextChanged')
+	def run(self):
+		self.run_gutter()
+
+	@neovim.autocmd('TextChangedI')
+	def run(self):
+		self.run_gutter()
+
+	@neovim.command('Test')
+	def test(self):
+		self.run_gutter()
