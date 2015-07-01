@@ -197,12 +197,19 @@ class GitGutter(object):
 				gutter.place_modified_sign(line)
 			for line in deleted:
 				if line not in modified:
-					gutter.place_remove_sign(line)
 					if line > 1:
 						gutter.place_remove_above_sign(line - 1)
+					else:
+						gutter.place_remove_sign(line)
 
-			for line in buf_list['inserted'] + buf_list['modified'] + buf_list['deleted']:
-					if line not in inserted + modified + deleted:
+			for line in buf_list['inserted'] + buf_list['modified']:
+				if line not in inserted + modified + deleted:
+					gutter.unplace_sign(line)
+			for line in  buf_list['deleted']:
+				if line not in deleted: 
+					if line > 1:
+						gutter.unplace_sign(line - 1)
+					else:
 						gutter.unplace_sign(line)
 
 			buf_list['inserted'], buf_list['modified'], buf_list['deleted'] = inserted, modified, deleted
@@ -212,8 +219,8 @@ class GitGutter(object):
 		# define sign characters
 		self.vim.command('sign define line_added text=+ texthl=lineAdded')
 		self.vim.command('sign define line_modified text=■ texthl=lineModified')
-		self.vim.command('sign define line_removed text=↟ texthl=lineRemoved')
-		self.vim.command('sign define line_above_removed text=↡ texthl=lineAboveRemoved')
+		self.vim.command('sign define line_removed text=^ texthl=lineRemoved')
+		self.vim.command('sign define line_above_removed text=_ texthl=lineAboveRemoved')
 		#set coloring on signs
 		self.vim.command('highlight lineAdded guifg=#009900 guibg=NONE ctermfg=2 ctermbg=NONE')
 		self.vim.command('highlight lineModified guifg=#bbbb00 guibg=NONE ctermfg=3 ctermbg=NONE')
