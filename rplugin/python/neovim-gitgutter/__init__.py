@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import time
 import os
 import subprocess
 import re
@@ -65,16 +66,17 @@ class GitGutterHandler(object):
 
 	def get_buf_contents(self):
 		contents = u'\n'.join(self.buffer[:])
+		contents += u'\n'
 		#Try conversion
 		try:
 			contents = contents.encode(self._get_view_encoding())
 
 		except UnicodeError:
 			# Fallback to utf8-encoding
-			contents = self.view.substr(region).encode('utf-8')
+			contents = contents.encode('utf-8')
 		except LookupError:
 			# May encounter an encoding we don't have a codec for
-			contents = self.view.substr(region).encode('utf-8')
+			contents = contents.encode('utf-8')
 
 		contents = contents.replace(b'\r\n', b'\n')
 		return contents.replace(b'\r', b'\n')
@@ -138,7 +140,7 @@ class GitGutterHandler(object):
 								startupinfo=startupinfo, stderr=subprocess.PIPE)
 		err = proc.stderr.read()
 		if not err == '':
-			raise Exception(err)
+			raise RuntimeError(err)
 		return proc.stdout.read()
 
 	#expect each line as a dict like {number: 2, type: add}
@@ -175,44 +177,51 @@ class GitGutter(object):
 		self.vim = vim.with_hook(neovim.DecodeHook())
 		self.buffer_states = {}
 	
-	def run_gutter(self):
-		
-		buf_name = self.vim.current.buffer.name
-		if buf_name:
-			if not buf_name in self.buffer_states:
-				self.buffer_states[buf_name] = {
-					'inserted': [],
-					'modified': [],
-					'deleted': []
-				}
+	def run_gutter(self, once=False):
+		while True:
+			buf_name = self.vim.current.buffer.name
+			if buf_name:
+				if not buf_name in self.buffer_states:
+					self.buffer_states[buf_name] = {
+						'inserted': [],
+						'modified': [],
+						'deleted': []
+					}
 
-			buf_list = self.buffer_states[buf_name]
-			
-			gutter = GitGutterHandler(self.vim.current.buffer, vim=self.vim)
-			inserted, modified, deleted = gutter.diff()
+				buf_list = self.buffer_states[buf_name]
+				try:	
+					gutter = GitGutterHandler(self.vim.current.buffer, vim=self.vim)
+					inserted, modified, deleted = gutter.diff()
+				except RuntimeError:
+					continue
+				else:
 
-			for line in inserted:
-				gutter.place_add_sign(line)
-			for line in modified:
-				gutter.place_modified_sign(line)
-			for line in deleted:
-				if line not in modified:
-					if line > 1:
-						gutter.place_remove_above_sign(line - 1)
-					else:
-						gutter.place_remove_sign(line)
+					for line in inserted:
+						gutter.place_add_sign(line)
+					for line in modified:
+						gutter.place_modified_sign(line)
+					for line in deleted:
+						if line not in modified:
+							if line > 1:
+								gutter.place_remove_above_sign(line - 1)
+							else:
+								gutter.place_remove_sign(line)
 
-			for line in buf_list['inserted'] + buf_list['modified']:
-				if line not in inserted + modified + deleted:
-					gutter.unplace_sign(line)
-			for line in  buf_list['deleted']:
-				if line not in deleted: 
-					if line > 1:
-						gutter.unplace_sign(line - 1)
-					else:
-						gutter.unplace_sign(line)
+					for line in buf_list['inserted'] + buf_list['modified']:
+						if line not in inserted + modified + deleted:
+							gutter.unplace_sign(line)
+					for line in  buf_list['deleted']:
+						if line not in deleted: 
+							if line > 1:
+								gutter.unplace_sign(line - 1)
+							else:
+								gutter.unplace_sign(line)
 
-			buf_list['inserted'], buf_list['modified'], buf_list['deleted'] = inserted, modified, deleted
+					buf_list['inserted'], buf_list['modified'], buf_list['deleted'] = inserted, modified, deleted
+
+			if once:
+				break
+			time.sleep(1)
 
 	@neovim.autocmd('VimEnter')
 	def init_signs(self):
@@ -226,35 +235,8 @@ class GitGutter(object):
 		self.vim.command('highlight lineModified guifg=#bbbb00 guibg=NONE ctermfg=3 ctermbg=NONE')
 		self.vim.command('highlight lineRemoved guifg=#ff2222 guibg=NONE ctermfg=1 ctermbg=NONE')
 		self.vim.command('highlight lineAboveRemoved guifg=#ff2222 guibg=NONE ctermfg=1 ctermbg=NONE')
-
-	@neovim.autocmd('BufReadPost')
-	def run(self):
 		self.run_gutter()
 
-	@neovim.autocmd('BufWritePost')
-	def run(self):
-		self.run_gutter()
-
-	@neovim.autocmd('FileReadPost')
-	def run(self):
-		self.run_gutter()
-
-	@neovim.autocmd('FileWritePost')
-	def run(self):
-		self.run_gutter()
-
-	@neovim.autocmd('BufEnter')
-	def run(self):
-		self.run_gutter()
-
-	@neovim.autocmd('TextChanged')
-	def run(self):
-		self.run_gutter()
-
-	@neovim.autocmd('TextChangedI')
-	def run(self):
-		self.run_gutter()
-
-	@neovim.command('Test')
-	def test(self):
-		self.run_gutter()
+	#@neovim.command('Test', sync=True)
+	#def test(self):
+		#self.run_gutter(once=True)
